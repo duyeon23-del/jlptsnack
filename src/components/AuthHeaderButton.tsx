@@ -84,7 +84,7 @@ export const AuthHeaderButton: FC<{
       </button>
       {menuOpen ? (
         <div
-          className="absolute right-0 z-[200] mt-2 w-44 overflow-hidden rounded-xl border border-slate-100 bg-white py-1 shadow-xl"
+          className="absolute right-0 top-full z-[60] mt-2 w-44 overflow-hidden rounded-xl border border-slate-100 bg-white py-1 shadow-xl"
           role="menu"
         >
           <button

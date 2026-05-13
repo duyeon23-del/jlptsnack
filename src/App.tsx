@@ -387,9 +387,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[var(--color-brand-bg)] font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden flex">
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Header Section */}
-        <header className="h-16 px-8 flex items-center justify-between shrink-0 bg-white/50 backdrop-blur-sm border-b border-slate-100">
+      <main className="relative isolate flex flex-1 flex-col h-screen overflow-hidden">
+        <header className="relative z-50 flex h-16 shrink-0 items-center justify-between border-b border-slate-100 bg-white/50 px-8 backdrop-blur-sm">
           <div className="flex items-center gap-4 cursor-pointer" onClick={() => setGameState('welcome')}>
             <h1 className="text-lg font-bold text-slate-700 hover:text-indigo-600 transition-colors">오늘의 N5 스낵 학습 ⚡</h1>
           </div>
@@ -421,7 +420,7 @@ export default function App() {
         </header>
 
         {/* Content Section */}
-        <div className="flex-1 p-4 md:p-8 overflow-y-auto">
+        <div className="relative z-0 min-h-0 flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
             <AnimatePresence mode="wait">
               {gameState === 'welcome' ? (

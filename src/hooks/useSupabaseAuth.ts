@@ -3,7 +3,7 @@ import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 
 export function getAuthRedirectUrl() {
-  return `${window.location.origin}${window.location.pathname}`;
+  return window.location.href.split('#')[0];
 }
 
 export function useSupabaseAuth() {
