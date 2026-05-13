@@ -118,60 +118,70 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
       className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100 relative overflow-hidden"
     >
       <div className="absolute top-0 left-0 w-2 h-full bg-indigo-500"></div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <span className="p-1.5 bg-indigo-50 rounded-lg text-indigo-600">
-            <CheckCircle2 className="w-5 h-5" />
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-2">
+          <span className="mt-0.5 shrink-0 rounded-lg bg-indigo-50 p-1.5 text-indigo-600">
+            <CheckCircle2 className="h-5 w-5" />
           </span>
-          <span className="font-bold text-indigo-900 uppercase tracking-wide text-sm">{question.title}</span>
+          <span className="min-w-0 text-sm font-bold uppercase leading-snug tracking-wide text-indigo-900">
+            {question.title}
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-          {isListeningMode && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+          {isListeningMode && !isLocked && (
             <>
-               <button 
-                 onClick={handlePlayAudio}
-                 disabled={audioState !== 'idle'}
-                 className="relative overflow-hidden flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-md shadow-indigo-100 hover:bg-indigo-700 transition-all disabled:opacity-50"
-               >
-                 {audioState === 'playing' && (
-                   <div 
-                     className="absolute inset-0 bg-indigo-800 transition-none origin-left"
-                     style={{ transform: `scaleX(${playbackProgress})` }}
-                   />
-                 )}
-                 <span className="relative z-10 flex items-center gap-2">
-                   {audioState === 'loading' ? (
-                     <Loader2 className="w-4 h-4 animate-spin" />
-                   ) : (
-                     <Volume2 className="w-4 h-4" />
-                   )}
-                   {audioState === 'playing' ? `${Math.round(playbackProgress * 100)}%` : hasListened ? '또 듣기' : '듣기'}
-                 </span>
-               </button>
-               <button 
-                 onClick={() => setShowScript(!showScript)}
-                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${showScript ? 'bg-slate-100 text-slate-600' : 'bg-slate-50 text-slate-400 border border-slate-200'}`}
-               >
-                 {showScript ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                 지문보기
-               </button>
+              <button
+                type="button"
+                onClick={handlePlayAudio}
+                disabled={audioState !== 'idle'}
+                className="relative flex shrink-0 items-center gap-2 overflow-hidden rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white shadow-md shadow-indigo-100 transition-all hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {audioState === 'playing' && (
+                  <div
+                    className="absolute inset-0 origin-left bg-indigo-800 transition-none"
+                    style={{ transform: `scaleX(${playbackProgress})` }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  {audioState === 'loading' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Volume2 className="h-4 w-4" />
+                  )}
+                  {audioState === 'playing'
+                    ? `${Math.round(playbackProgress * 100)}%`
+                    : hasListened
+                      ? '다시 듣기'
+                      : '문제듣기'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowScript(!showScript)}
+                className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all ${showScript ? 'bg-slate-100 text-slate-600' : 'border border-slate-200 bg-slate-50 text-slate-400'}`}
+              >
+                {showScript ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                지문보기
+              </button>
             </>
           )}
           {isLocked && onNext && (
-            <div className="flex items-center gap-2">
-              <button 
+            <>
+              <button
+                type="button"
                 onClick={onToggleBookmark}
-                className={`p-2.5 rounded-xl transition-all border ${isBookmarked ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-400 hover:text-indigo-500 hover:bg-slate-50'}`}
+                className={`shrink-0 rounded-xl border p-2.5 transition-all ${isBookmarked ? 'border-indigo-200 bg-indigo-50 text-indigo-600' : 'border-slate-200 bg-white text-slate-400 hover:bg-slate-50 hover:text-indigo-500'}`}
               >
-                <BookmarkIcon className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} />
+                <BookmarkIcon className={`h-5 w-5 ${isBookmarked ? 'fill-current' : ''}`} />
               </button>
               <button
-                 onClick={onNext}
-                 className={`px-6 py-2.5 text-white font-bold rounded-xl shadow-lg transition-all hover:scale-105 active:scale-95 ${selectedOption === question.answerIndex ? 'bg-emerald-500 shadow-emerald-200' : 'bg-indigo-600 shadow-indigo-200'}`}
-               >
-                 {selectedOption === question.answerIndex ? '다음 도전 →' : '다음 문제 →'}
+                type="button"
+                onClick={onNext}
+                className={`inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-xl px-5 py-2.5 text-sm font-bold text-white shadow-lg transition-[box-shadow,filter] hover:brightness-110 active:brightness-95 ${selectedOption === question.answerIndex ? 'bg-emerald-500 shadow-emerald-200' : 'bg-indigo-600 shadow-indigo-200'}`}
+              >
+                다음 문제 →
               </button>
-            </div>
+            </>
           )}
         </div>
       </div>

@@ -11,6 +11,15 @@ import { AuthHeaderButton } from './components/AuthHeaderButton';
 import { QuestionCard, Feedback } from './components/TutorComponents';
 import { useSupabaseAuth } from './hooks/useSupabaseAuth';
 import { generateN5Questions } from './services/geminiService';
+import {
+  emptyUserState,
+  insertAnswerHistory,
+  loadCloudState,
+  resetCloudLearning,
+  syncQuestionBookmark,
+  syncWordBookmark,
+  upsertLearningProfile,
+} from './services/learningCloud';
 import { QUESTIONS } from './data/questions';
 
 const CATEGORIES: QuestionType[] = ['N5V', 'N5G', 'N5R', 'N5L'];
@@ -94,17 +103,44 @@ export default function App() {
   const [unseenWordBookmarks, setUnseenWordBookmarks] = useState<Set<string>>(new Set());
   const [unseenQuestionBookmarks, setUnseenQuestionBookmarks] = useState<Set<string>>(new Set());
   const generatingPromiseRef = useRef<Promise<Question[]> | null>(null);
-  
-  const [userState, setUserState] = useState<UserState>({
-    level: 1,
-    xp: 0,
-    streak: 0,
-    progress: { N5V: 0, N5G: 0, N5R: 0, N5L: 0 },
-    mistakeWeights: { N5V: 0, N5G: 0, N5R: 0, N5L: 0 },
-    bookmarks: [],
-    bookmarkedQuestions: [],
-    history: []
-  });
+  const [cloudSynced, setCloudSynced] = useState(true);
+  const [serverHasProgress, setServerHasProgress] = useState(false);
+
+  const [userState, setUserState] = useState<UserState>(emptyUserState());
+
+  useEffect(() => {
+    if (!user) {
+      setUserState(emptyUserState());
+      setQuestionBuffer([]);
+      setCurrentIdx(0);
+      setSelectedOption(null);
+      setIsLocked(false);
+      setServerHasProgress(false);
+      setCloudSynced(true);
+      setGameState('welcome');
+      return;
+    }
+
+    let cancelled = false;
+    setCloudSynced(false);
+    (async () => {
+      try {
+        const { userState: loaded, hasSolvedAny } = await loadCloudState(user.id);
+        if (cancelled) return;
+        setUserState(loaded);
+        setServerHasProgress(hasSolvedAny);
+      } catch (e) {
+        console.error('loadCloudState', e);
+        if (!cancelled) setUserState(emptyUserState());
+      } finally {
+        if (!cancelled) setCloudSynced(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const getNextCategory = useCallback(() => {
     // 1. Check baseline coverage (5 questions per category)
@@ -160,37 +196,47 @@ export default function App() {
   const currentQuestion = useMemo(() => questionBuffer[currentIdx], [questionBuffer, currentIdx]);
 
   const handleSelect = (idx: number) => {
+    const uid = user?.id;
     setSelectedOption(idx);
     setIsLocked(true);
 
     const isCorrect = idx === currentQuestion.answerIndex;
-    
-    setUserState(prev => {
-      const newHistory = [...prev.history, {
-        questionId: currentQuestion.id,
-        type: currentQuestion.type,
-        isCorrect,
-        timestamp: Date.now()
-      }];
 
-      const typeHistory = newHistory.filter(h => h.type === currentQuestion.type);
-      const mistakes = typeHistory.filter(h => !h.isCorrect).length;
-      
-      return {
+    setUserState((prev) => {
+      const newHistory = [
+        ...prev.history,
+        {
+          questionId: currentQuestion.id,
+          type: currentQuestion.type,
+          isCorrect,
+          timestamp: Date.now(),
+        },
+      ];
+
+      const typeHistory = newHistory.filter((h) => h.type === currentQuestion.type);
+      const mistakes = typeHistory.filter((h) => !h.isCorrect).length;
+
+      const next: UserState = {
         ...prev,
         xp: isCorrect ? prev.xp + 20 : prev.xp,
         streak: isCorrect ? prev.streak + 1 : 0,
         level: Math.floor((prev.xp + (isCorrect ? 20 : 0)) / 100) + 1,
         progress: {
           ...prev.progress,
-          [currentQuestion.type]: (prev.progress[currentQuestion.type] || 0) + 1
+          [currentQuestion.type]: (prev.progress[currentQuestion.type] || 0) + 1,
         },
         mistakeWeights: {
           ...prev.mistakeWeights,
-          [currentQuestion.type]: mistakes / typeHistory.length
+          [currentQuestion.type]: mistakes / typeHistory.length,
         },
-        history: newHistory
+        history: newHistory,
       };
+
+      if (uid) {
+        void insertAnswerHistory(uid, currentQuestion.id, currentQuestion.type, isCorrect);
+        void upsertLearningProfile(uid, next);
+      }
+      return next;
     });
   };
 
@@ -257,7 +303,9 @@ export default function App() {
     const adding = !userState.bookmarks.some((b) => b.word === word);
     if (adding && !(await ensureLoggedIn())) return;
 
-    setUserState(prev => {
+    const uid = user?.id;
+
+    setUserState((prev) => {
       const isBookmarked = prev.bookmarks.some(b => b.word === word);
       let newBookmarks: Bookmark[];
       
@@ -285,13 +333,17 @@ export default function App() {
       
       return { ...prev, bookmarks: newBookmarks };
     });
+
+    if (uid) void syncWordBookmark(uid, word, meaning, adding);
   };
 
   const toggleQuestionBookmark = async (question: Question) => {
     const adding = !userState.bookmarkedQuestions.some((q) => q.id === question.id);
     if (adding && !(await ensureLoggedIn())) return;
 
-    setUserState(prev => {
+    const uid = user?.id;
+
+    setUserState((prev) => {
       const isBookmarked = prev.bookmarkedQuestions.some(q => q.id === question.id);
       let newQuestions: Question[];
       
@@ -319,6 +371,8 @@ export default function App() {
       
       return { ...prev, bookmarkedQuestions: newQuestions };
     });
+
+    if (uid) void syncQuestionBookmark(uid, question, adding);
   };
 
   const startLearning = async () => {
@@ -368,21 +422,25 @@ export default function App() {
     }
   };
 
-  const handleStartOver = () => {
-    setUserState({
-      level: 1,
-      xp: 0,
-      streak: 0,
-      progress: { N5V: 0, N5G: 0, N5R: 0, N5L: 0 },
-      mistakeWeights: { N5V: 0, N5G: 0, N5R: 0, N5L: 0 },
-      bookmarks: [],
-      bookmarkedQuestions: [],
-      history: []
-    });
+  const handleStartOver = async () => {
+    if (user) {
+      try {
+        await resetCloudLearning(user.id);
+      } catch (e) {
+        console.error('resetCloudLearning', e);
+      }
+    }
+    setUserState(emptyUserState());
+    setServerHasProgress(false);
     setQuestionBuffer([]);
     setCurrentIdx(0);
     setShowResetConfirm(false);
   };
+
+  const showWelcomeResume =
+    cloudSynced &&
+    ((!user && userState.history.length > 0) ||
+      (user && (serverHasProgress || userState.history.length > 0)));
 
   return (
     <div className="min-h-screen bg-[var(--color-brand-bg)] font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden flex">
@@ -484,18 +542,17 @@ export default function App() {
                     당신의 JLPT 코치가 합격의 길로 안내합니다.<br />매일 조금씩 실력을 쌓아보세요.
                   </p>
                   
-                  {userState.history.length === 0 ? (
-                    <button
-                      onClick={startLearning}
-                      className="bg-indigo-600 text-white px-10 py-5 rounded-2xl text-xl font-bold shadow-xl shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-1 transition-all active:translate-y-0 disabled:opacity-50"
-                      disabled={gameState === 'loading'}
-                    >
-                      몸풀기 시작 →
-                    </button>
-                  ) : (
+                  {user && !cloudSynced ? (
+                    <div className="flex flex-col items-center gap-3 py-8">
+                      <Loader2 className="h-10 w-10 animate-spin text-indigo-600" />
+                      <p className="text-center text-sm font-medium text-slate-500">
+                        계정에 저장된 학습 기록을 불러오는 중이에요…
+                      </p>
+                    </div>
+                  ) : showWelcomeResume ? (
                     <div className="flex flex-col sm:flex-row gap-4 items-center mt-6">
                       <button
-                        onClick={resumeLearning}
+                        onClick={() => void resumeLearning()}
                         className="bg-indigo-600 text-white px-8 py-4 rounded-2xl text-lg font-bold shadow-xl shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-1 transition-all active:translate-y-0 disabled:opacity-50"
                         disabled={gameState === 'loading'}
                       >
@@ -509,6 +566,14 @@ export default function App() {
                         처음부터 하기
                       </button>
                     </div>
+                  ) : (
+                    <button
+                      onClick={() => void startLearning()}
+                      className="bg-indigo-600 text-white px-10 py-5 rounded-2xl text-xl font-bold shadow-xl shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-1 transition-all active:translate-y-0 disabled:opacity-50"
+                      disabled={gameState === 'loading'}
+                    >
+                      몸풀기 시작 →
+                    </button>
                   )}
                 </motion.div>
               ) : gameState === 'loading' ? (
@@ -740,21 +805,27 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="relative w-full max-w-sm bg-white rounded-[32px] shadow-2xl p-8 text-center"
             >
-              <h3 className="text-2xl font-black text-slate-800 tracking-tight mb-4">학습 초기화</h3>
-              <p className="text-slate-500 mb-8">모든 학습 기록 및 북마크가 삭제됩니다. 처음으로 돌아가시겠습니까?</p>
-              
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight mb-4">처음부터 다시 풀기</h3>
+              <p className="text-slate-500 mb-8">
+                문제를 처음부터 다시 풀어보겠어요?
+                <br />
+                저장된 학습 기록과 북마크가 모두 초기화됩니다.
+              </p>
+
               <div className="flex flex-col gap-3">
-                <button 
-                  onClick={handleStartOver}
+                <button
+                  type="button"
+                  onClick={() => void handleStartOver()}
                   className="w-full py-4 rounded-2xl bg-rose-500 text-white font-bold hover:bg-rose-600 transition-colors shadow-lg shadow-rose-200"
                 >
-                  예, 처음부터 할게요
+                  예
                 </button>
-                <button 
+                <button
+                  type="button"
                   onClick={() => setShowResetConfirm(false)}
                   className="w-full py-4 rounded-2xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 transition-colors"
                 >
-                  아니오, 취소할게요
+                  아니오
                 </button>
               </div>
             </motion.div>
