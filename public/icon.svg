@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  JLPT Snack app icon
+  - Canvas: 512x512 (export to 180 / 192 / 512)
+  - Primary: #4F46E5 indigo-600, gradient to indigo-700
+  - Dango accents: #F472B6, #FDE047, #86EFAC (matches welcome screen)
+  - Keep main shapes in center 66% for maskable icons
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="JLPT Snack">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#4338CA"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1E1B4B" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <g filter="url(#soft)">
+    <line x1="352" y1="118" x2="268" y2="268" stroke="#C4A574" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="288" cy="232" r="44" fill="#86EFAC" stroke="#1E293B" stroke-width="4"/>
+    <circle cx="318" cy="168" r="44" fill="#FDE047" stroke="#1E293B" stroke-width="4"/>
+    <circle cx="348" cy="104" r="44" fill="#F472B6" stroke="#1E293B" stroke-width="4"/>
+  </g>
+  <text
+    x="256"
+    y="398"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, Segoe UI, sans-serif"
+    font-size="132"
+    font-weight="800"
+    fill="#FFFFFF"
+    letter-spacing="-4"
+  >N5</text>
+  <path fill="#FDE047" stroke="#1E293B" stroke-width="3" stroke-linejoin="round"
+    d="M128 156l18 52 54-14-34 44 46 28-58-8-16 50-12-52-52 16 40-38-44-32 54 10z"/>
+</svg>

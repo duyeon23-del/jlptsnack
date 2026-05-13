@@ -5,9 +5,11 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef, type FC } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Zap, Trophy, Target, Menu, ArrowRight, Loader2, Bookmark as BookmarkIcon, X } from 'lucide-react';
+import { Loader2, Bookmark as BookmarkIcon, X } from 'lucide-react';
 import { Question, UserState, QuestionType, Bookmark } from './types';
+import { AuthHeaderButton } from './components/AuthHeaderButton';
 import { QuestionCard, Feedback } from './components/TutorComponents';
+import { useSupabaseAuth } from './hooks/useSupabaseAuth';
 import { generateN5Questions } from './services/geminiService';
 import { QUESTIONS } from './data/questions';
 
@@ -77,6 +79,7 @@ const BookmarkedQuestionItem: FC<{ question: Question; onRemove: () => void }> =
 };
 
 export default function App() {
+  const { user, signInWithGoogle, signOut, ensureLoggedIn } = useSupabaseAuth();
   const [gameState, setGameState] = useState<'welcome' | 'playing' | 'loading'>('welcome');
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [randomKanjiBatch, setRandomKanjiBatch] = useState<{kanji: string, furigana: string, meaning: string}[]>([]);
@@ -247,11 +250,13 @@ export default function App() {
     }
   };
 
-  const toggleBookmark = (wordStr: string) => {
+  const toggleBookmark = async (wordStr: string) => {
     const splitIndex = wordStr.indexOf(':');
     const word = splitIndex !== -1 ? wordStr.slice(0, splitIndex).trim() : wordStr.trim();
     const meaning = splitIndex !== -1 ? wordStr.slice(splitIndex + 1).trim() : '';
-    
+    const adding = !userState.bookmarks.some((b) => b.word === word);
+    if (adding && !(await ensureLoggedIn())) return;
+
     setUserState(prev => {
       const isBookmarked = prev.bookmarks.some(b => b.word === word);
       let newBookmarks: Bookmark[];
@@ -282,7 +287,10 @@ export default function App() {
     });
   };
 
-  const toggleQuestionBookmark = (question: Question) => {
+  const toggleQuestionBookmark = async (question: Question) => {
+    const adding = !userState.bookmarkedQuestions.some((q) => q.id === question.id);
+    if (adding && !(await ensureLoggedIn())) return;
+
     setUserState(prev => {
       const isBookmarked = prev.bookmarkedQuestions.some(q => q.id === question.id);
       let newQuestions: Question[];
@@ -314,6 +322,7 @@ export default function App() {
   };
 
   const startLearning = async () => {
+    if (!(await ensureLoggedIn())) return;
     setGameState('loading');
     setLoadingProgress(0);
     
@@ -350,7 +359,8 @@ export default function App() {
     }, 600);
   };
 
-  const resumeLearning = () => {
+  const resumeLearning = async () => {
+    if (!(await ensureLoggedIn())) return;
     if (questionBuffer.length > 0 && currentIdx < questionBuffer.length) {
       setGameState('playing');
     } else {
@@ -383,9 +393,11 @@ export default function App() {
           <div className="flex items-center gap-4 cursor-pointer" onClick={() => setGameState('welcome')}>
             <h1 className="text-lg font-bold text-slate-700 hover:text-indigo-600 transition-colors">오늘의 N5 스낵 학습 ⚡</h1>
           </div>
-          <div className="flex items-center gap-4 sm:gap-6">
-            <button 
-              onClick={() => {
+          <div className="flex items-center gap-3 sm:gap-4">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!(await ensureLoggedIn())) return;
                 if (unseenQuestionBookmarks.size > 0 && unseenWordBookmarks.size === 0) {
                   setBookmarkTab('question');
                   setUnseenQuestionBookmarks(new Set());
@@ -404,6 +416,7 @@ export default function App() {
                 </span>
               )}
             </button>
+            <AuthHeaderButton user={user} onGoogleLogin={signInWithGoogle} onSignOut={signOut} />
           </div>
         </header>
 
@@ -593,7 +606,7 @@ export default function App() {
                       isLocked={isLocked}
                       onNext={handleNext}
                       isBookmarked={userState.bookmarkedQuestions.some(q => q.id === currentQuestion.id)}
-                      onToggleBookmark={() => toggleQuestionBookmark(currentQuestion)}
+                      onToggleBookmark={() => void toggleQuestionBookmark(currentQuestion)}
                     />
 
                     {isLocked && (
@@ -632,7 +645,7 @@ export default function App() {
                               </div>
                               <div className="flex items-center gap-1">
                                 <button 
-                                  onClick={() => toggleBookmark(wordStr)}
+                                  onClick={() => void toggleBookmark(wordStr)}
                                   className={`p-2 rounded-xl transition-all ${isBookmarked ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50'}`}
                                 >
                                   <BookmarkIcon className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`} />
@@ -833,7 +846,7 @@ export default function App() {
                             <span className="text-sm font-bold text-indigo-600">{bookmark.meaning}</span>
                           </div>
                           <button 
-                            onClick={() => toggleBookmark(`${bookmark.word}: ${bookmark.meaning}`)}
+                            onClick={() => void toggleBookmark(`${bookmark.word}: ${bookmark.meaning}`)}
                             className="p-2 rounded-xl text-rose-300 hover:text-rose-500 hover:bg-rose-50 transition-all"
                           >
                             <BookmarkIcon className="w-5 h-5 fill-current" />
@@ -861,7 +874,7 @@ export default function App() {
                         >
                           <BookmarkedQuestionItem 
                             question={q} 
-                            onRemove={() => toggleQuestionBookmark(q)} 
+                            onRemove={() => void toggleQuestionBookmark(q)} 
                           />
                         </motion.div>
                       ))}
