@@ -282,15 +282,18 @@ export async function generateN5Questions(category: QuestionType, count: number 
   const prompt = `Generate ${count} JLPT N5 style practice questions for the category: ${categoryNames[category]}.
   
   STRICT RULES:
-  1. CRITICAL: THE "title", "question", "context", AND "options" FIELDS MUST BE 100% IN JAPANESE. THERE MUST BE ABSOLUTELY NO KOREAN CHARACTERS IN THESE FIELDS.
-     Example of expected Japanese content: "私(わたし)は 毎日(まいにち) 学校(がっこう)へ 行(い)きます。"
-     Example of strictly forbidden content: "私(わたし)은 毎日 학교へ 行(い)きます。"
+  1. CRITICAL: LANGUAGE SEGREGATION
+     The "title", "question", "context", and "options" fields MUST be 100% in Japanese.
+     ZERO HANGUL TOLERANCE: There must be absolutely no Korean characters (Hangul) in these fields, especially Korean particles (e.g., 은, 는, 이, 가, 을, 를).
+     EXCEPTION: Only in "Kanji Writing" tasks (漢字の書き方), the target word may be written in Hiragana within the "question" field to indicate what needs to be converted to Kanji.
+     Visual standard — wrong (Korean particle): 「昨日(きのう) 料理(りょうり)를 つくりました。」
+     Visual standard — correct (all Japanese): 「昨日(きのう) 料理(りょうり)を つくりました。」
   2. FURIGANA: Use KANJI(FURIGANA) for most kanji (e.g., 学校(がっこう)). The reading inside parentheses MUST be hiragana or katakana ONLY — NEVER Korean Hangul (wrong: 学校(가っこう), correct: 学校(がっこう)).
-  3. ABSOLUTE ANSWER LEAK BAN: The exact text of the CORRECT option (options[answerIndex]) MUST NEVER appear in "title", "question", or "context" — including inside furigana after the target kanji.
-     - If asking for 読み方(よみかた) of a word, write that word as PLAIN KANJI ONLY (e.g. 天気) — never 天気(てんき) when てんき is the correct option.
-     - Wrong distractors may still use KANJI(FURIGANA) as usual.
-     - If every option is a SINGLE kanji (漢字の書き方 / 正しい漢字を選ぶ), the sentence MUST NOT write that word in hiragana or katakana at the blank position — that reveals the answer. Use a placeholder: 「（　　）を 飲(の)みましょう」 or 「□□を 飲(の)みましょう」. Forbidden when 水 is correct: 「みずを 飲(の)みましょう」.
-  3b. ZERO HANGUL IN JAPANESE FIELDS: "title", "question", "context", and "options" MUST contain ONLY Japanese-appropriate characters (kanji, hiragana, katakana, Latin digits/letters if needed, Japanese punctuation). NEVER insert Korean Hangul (e.g. 은, 는, 을, 의, 에) — use は, が, を, の, に instead. Wrong: 「映画(えいが)은 あまり」 — correct: 「映画(えいが)は あまり」.
+  3. ABSOLUTE ANSWER LEAK BAN:
+     The exact text of the CORRECT option (options[answerIndex]) MUST NEVER appear in "title", "question", or "context" in a way that reveals the answer — except where rule 1 / Writing rules explicitly allow (e.g. hiragana target for 漢字の書き方).
+     Reading questions (読み方): The target word must be written in PLAIN KANJI without furigana (e.g. 天気). All other kanji in the same sentence MUST still use furigana for N5 learners (e.g. 「昨日(きのう)の天気はどうでしたか。」 — 天気 plain only for the asked reading).
+     Writing questions (漢字の書き方): If the goal is to choose the correct kanji for a word, "question" or "context" MUST give that word in hiragana (e.g. 「みずを 飲(の)みましょう」), while "options" are the kanji choices (e.g. 1. 水, 2. 木, ...). This is the only case where the phonetic reading may appear in the prompt to define the target; do not leak the correct kanji shape outside the options.
+     Wrong distractors may still use KANJI(FURIGANA) as usual where appropriate.
   4. The "explanation", "tip", and "keywords" MUST be in Korean.
   5. For N5G (Grammar), include "sentence ordering" (★) questions.
   6. For N5L (Listening), provide a situational dialogue in Japanese text in "context" field.
@@ -298,8 +301,10 @@ export async function generateN5Questions(category: QuestionType, count: number 
   7b. STAR ★ ORDER (語順・並び替え): If "question" contains ★ (or ＊) for word-order tasks, "context" MUST NOT include the same clause with every option already in the correct solved order — that exposes the answer. Example forbidden: context says 「机の上にきれいな並べて本が三冊あります」 while the question asks to place ★ among blanks with those same fragments as options. Use only setup sentences in context, or a passage that omits that clause entirely.
   8. IDs should be unique.
   9. Difficulty should be 1-3 for N5 level.
-  10. "keywords" MUST be 3 essential words extracted ONLY from the "question", "context", or "options" of this specific question.
-     Format each keyword string as: "Kanji(Furigana): Meaning in Korean" (e.g., "学校(がっこう): 학교").
+  10. KEYWORDS EXTRACTION:
+     Extract 3 essential words from the "question", "context", or "options".
+     Format: "Kanji(Furigana): Meaning in Korean".
+     Constraint: Even if a word appears only as plain kanji (no furigana) in the question, you MUST supply the correct furigana in this field. If a word appears only in hiragana (or katakana) in the text, use "Hiragana: Meaning" or "Katakana: Meaning" in Korean gloss (e.g., "パン: 빵").
   
   Return the response as a JSON array of objects matching the schema.`;
 
