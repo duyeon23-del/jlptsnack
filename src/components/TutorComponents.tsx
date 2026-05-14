@@ -1,8 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, XCircle, Lightbulb, ArrowRight, RefreshCcw, Volume2, Eye, EyeOff, Loader2, Bookmark as BookmarkIcon } from 'lucide-react';
 import { Question } from '../types';
-import { getTextToSpeech } from '../services/geminiService';
+import { getTextToSpeech, scrubJapaneseQuestionSurfaces } from '../services/geminiService';
+
+function decodeGeminiTtsPcmBase64ToFloat32(base64: string): Float32Array {
+  const binaryString = window.atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  const arrayBuffer = bytes.buffer;
+  const pcmData = new Int16Array(arrayBuffer);
+  const float32Data = new Float32Array(pcmData.length);
+  for (let i = 0; i < pcmData.length; i++) {
+    float32Data[i] = pcmData[i] / 32768.0;
+  }
+  return float32Data;
+}
 
 interface QuestionCardProps {
   question: Question;
@@ -15,58 +30,78 @@ interface QuestionCardProps {
 }
 
 export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOption, onSelect, isLocked, onNext, isBookmarked, onToggleBookmark }) => {
+  const displayQuestion = useMemo(() => scrubJapaneseQuestionSurfaces(question), [question]);
+
   const [showScript, setShowScript] = useState(false);
   const [audioState, setAudioState] = useState<'idle' | 'loading' | 'playing'>('idle');
   const [playbackProgress, setPlaybackProgress] = useState(0);
   const [cachedAudio, setCachedAudio] = useState<Float32Array | null>(null);
   const [hasListened, setHasListened] = useState(false);
   const animationRef = useRef<number>();
+  const ttsInflightRef = useRef<Map<string, Promise<Float32Array>>>(new Map());
 
-  const isListeningMode = question.type === 'N5L';
+  const isListeningMode = displayQuestion.type === 'N5L';
+
+  const listeningTtsSource = useMemo(() => {
+    const raw = (displayQuestion.context || displayQuestion.question || '').trim();
+    return raw;
+  }, [displayQuestion.context, displayQuestion.question]);
+
+  const getOrFetchTtsFloat32 = useCallback(
+    (text: string) => {
+      const key = `${question.id}\0${text}`;
+      const hit = ttsInflightRef.current.get(key);
+      if (hit) return hit;
+      const p = getTextToSpeech(text).then((base64) => decodeGeminiTtsPcmBase64ToFloat32(base64));
+      ttsInflightRef.current.set(key, p);
+      p.finally(() => {
+        if (ttsInflightRef.current.get(key) === p) ttsInflightRef.current.delete(key);
+      });
+      return p;
+    },
+    [question.id],
+  );
 
   useEffect(() => {
-    // Reset state when question changes
     setShowScript(false);
     setCachedAudio(null);
     setAudioState('idle');
     setPlaybackProgress(0);
     setHasListened(false);
+    ttsInflightRef.current.clear();
     if (animationRef.current) cancelAnimationFrame(animationRef.current);
-  }, [question.id]);
+
+    if (!isListeningMode || !listeningTtsSource) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const float32Data = await getOrFetchTtsFloat32(listeningTtsSource);
+        if (cancelled) return;
+        setCachedAudio(float32Data);
+        setHasListened(true);
+      } catch (e) {
+        if (!cancelled) console.error('청해 TTS 프리페치 실패:', e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [question.id, isListeningMode, listeningTtsSource, getOrFetchTtsFloat32]);
 
   const handlePlayAudio = async () => {
     if (audioState !== 'idle') return;
-    setAudioState('loading');
-    setPlaybackProgress(0);
 
     try {
       let float32Data = cachedAudio;
-
-      // 만약 캐시된 오디오 데이터가 없다면 API 호출을 통해 새로 생성합니다.
-      if (!float32Data) {
-        console.log("Generating new TTS audio via API...");
-        const base64 = await getTextToSpeech(question.context || question.question);
-        
-        // Base64를 ArrayBuffer로 변환
-        const binaryString = window.atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        
-        const arrayBuffer = bytes.buffer;
-        // Gemini TTS raw PCM은 보통 16-bit signed integer입니다.
-        const pcmData = new Int16Array(arrayBuffer);
-        float32Data = new Float32Array(pcmData.length);
-        for (let i = 0; i < pcmData.length; i++) {
-          float32Data[i] = pcmData[i] / 32768.0;
-        }
-        
-        // 자체 상태(캐시)에 저장하여 다음 '또 듣기' 시에 활용합니다.
+      if (!float32Data && listeningTtsSource) {
+        setAudioState('loading');
+        float32Data = await getOrFetchTtsFloat32(listeningTtsSource);
+        if (!float32Data) return;
         setCachedAudio(float32Data);
-      } else {
-        console.log("Playing cached audio data...");
       }
+      if (!float32Data) return;
 
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const audioBuffer = audioContext.createBuffer(1, float32Data.length, 24000);
@@ -75,9 +110,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
       const source = audioContext.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(audioContext.destination);
-      
+
       setAudioState('playing');
-      
+
       const startTime = audioContext.currentTime;
       const duration = audioBuffer.duration;
 
@@ -86,7 +121,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
         const elapsed = audioContext.currentTime - startTime;
         const currentProgress = Math.min(elapsed / duration, 1);
         setPlaybackProgress(currentProgress);
-        
+
         if (currentProgress < 1) {
           animationRef.current = requestAnimationFrame(updateProgress);
         }
@@ -97,14 +132,13 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
         setHasListened(true);
         setPlaybackProgress(0);
         if (animationRef.current) cancelAnimationFrame(animationRef.current);
-        audioContext.close(); // 자원 해제
+        audioContext.close();
       };
-      
+
       source.start();
       animationRef.current = requestAnimationFrame(updateProgress);
-
     } catch (error) {
-      console.error("Playback failed:", error);
+      console.error('Playback failed:', error);
       setAudioState('idle');
       setPlaybackProgress(0);
     }
@@ -124,7 +158,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
             <CheckCircle2 className="h-5 w-5" />
           </span>
           <span className="min-w-0 text-sm font-bold uppercase leading-snug tracking-wide text-indigo-900">
-            {question.title}
+            {displayQuestion.title}
           </span>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
@@ -187,21 +221,21 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
       </div>
 
       <div className="space-y-6 mb-8">
-        {question.context && (
+        {displayQuestion.context && (
           <motion.div 
             className="p-5 bg-slate-50 rounded-2xl border border-slate-100 text-slate-700 text-base leading-relaxed whitespace-pre-wrap italic shadow-inner"
           >
-            {isListeningMode && !showScript ? '지문보기를 클릭하면 지문이 노출됩니다' : question.context}
+            {isListeningMode && !showScript ? '지문보기를 클릭하면 지문이 노출됩니다' : displayQuestion.context}
           </motion.div>
         )}
         
         <h3 className="text-2xl font-bold text-slate-800 leading-tight">
-          {question.question}
+          {displayQuestion.question}
         </h3>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {question.options.map((option, idx) => {
+        {displayQuestion.options.map((option, idx) => {
           const isSelected = selectedOption === idx;
           const isCorrect = idx === question.answerIndex;
           

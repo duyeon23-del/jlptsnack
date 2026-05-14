@@ -1,6 +1,8 @@
 import { supabase } from '../lib/supabase';
-import type { Bookmark, Question, QuestionType, UserState } from '../types';
+import type { Bookmark, Question, QuestionType, SessionResume, UserState } from '../types';
 import { QUESTIONS } from '../data/questions';
+
+const SESSION_STORAGE_PREFIX = 'jlptsnack_session_resume_v1:';
 
 const EMPTY_PROGRESS: Record<QuestionType, number> = {
   N5V: 0,
@@ -48,6 +50,145 @@ function historyToMistakeWeights(
   return out;
 }
 
+function parseMinimalQuestion(raw: unknown): Question | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === 'string' ? o.id : null;
+  const type = o.type as QuestionType;
+  const title = typeof o.title === 'string' ? o.title : null;
+  const question = typeof o.question === 'string' ? o.question : null;
+  const options = o.options;
+  const answerIndex = o.answerIndex;
+  const explanation = typeof o.explanation === 'string' ? o.explanation : null;
+  const tip = typeof o.tip === 'string' ? o.tip : null;
+  const difficulty = typeof o.difficulty === 'number' ? o.difficulty : null;
+  const keywords = o.keywords;
+  if (
+    !id ||
+    (type !== 'N5V' && type !== 'N5G' && type !== 'N5R' && type !== 'N5L') ||
+    !title ||
+    !question ||
+    !Array.isArray(options) ||
+    !options.every((x) => typeof x === 'string') ||
+    typeof answerIndex !== 'number' ||
+    answerIndex < 0 ||
+    answerIndex >= options.length ||
+    !explanation ||
+    !tip ||
+    typeof difficulty !== 'number' ||
+    !Array.isArray(keywords) ||
+    !keywords.every((x) => typeof x === 'string')
+  ) {
+    return null;
+  }
+  const context = typeof o.context === 'string' ? o.context : undefined;
+  return {
+    id,
+    type,
+    title,
+    context,
+    question,
+    options: options as string[],
+    answerIndex,
+    explanation,
+    tip,
+    difficulty,
+    keywords: keywords as string[],
+  };
+}
+
+export function parseSessionResume(raw: unknown): SessionResume | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const buf = o.questionBuffer;
+  if (!Array.isArray(buf) || buf.length === 0) return null;
+  const questionBuffer: Question[] = [];
+  for (const item of buf) {
+    const q = parseMinimalQuestion(item);
+    if (!q) return null;
+    questionBuffer.push(q);
+  }
+  let currentIdx = typeof o.currentIdx === 'number' && Number.isFinite(o.currentIdx) ? Math.floor(o.currentIdx) : 0;
+  currentIdx = Math.max(0, Math.min(currentIdx, questionBuffer.length - 1));
+  const curOpts = questionBuffer[currentIdx]!.options;
+  let safeSelected: number | null = null;
+  if (typeof o.selectedOption === 'number' && Number.isInteger(o.selectedOption)) {
+    const si = o.selectedOption;
+    if (si >= 0 && si < curOpts.length) safeSelected = si;
+  }
+  const isLocked = o.isLocked === true && safeSelected !== null;
+  const updatedAt =
+    typeof o.updatedAt === 'number' && Number.isFinite(o.updatedAt) ? o.updatedAt : 0;
+  return {
+    questionBuffer,
+    currentIdx,
+    selectedOption: safeSelected,
+    isLocked,
+    updatedAt,
+  };
+}
+
+export function pickNewerSessionResume(
+  a: SessionResume | null,
+  b: SessionResume | null,
+): SessionResume | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a.updatedAt >= b.updatedAt ? a : b;
+}
+
+export function readSessionResumeFromStorage(userId: string): SessionResume | null {
+  try {
+    const raw = sessionStorage.getItem(`${SESSION_STORAGE_PREFIX}${userId}`);
+    if (!raw) return null;
+    return parseSessionResume(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+export function writeSessionResumeToStorage(userId: string, session: SessionResume): void {
+  try {
+    sessionStorage.setItem(`${SESSION_STORAGE_PREFIX}${userId}`, JSON.stringify(session));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+export function clearSessionResumeStorage(userId: string): void {
+  try {
+    sessionStorage.removeItem(`${SESSION_STORAGE_PREFIX}${userId}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function saveSessionResumeRemote(userId: string, session: SessionResume): Promise<void> {
+  const { data: row, error: selErr } = await supabase
+    .from('user_learning_profile')
+    .select('user_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (selErr) {
+    console.error('saveSessionResumeRemote select', selErr);
+    return;
+  }
+  if (!row) return;
+  const { error } = await supabase
+    .from('user_learning_profile')
+    .update({ session_resume: session })
+    .eq('user_id', userId);
+  if (error) console.error('saveSessionResumeRemote update', error);
+}
+
+export async function clearSessionResumeRemote(userId: string): Promise<void> {
+  const { error } = await supabase
+    .from('user_learning_profile')
+    .update({ session_resume: null })
+    .eq('user_id', userId);
+  if (error) console.error('clearSessionResumeRemote', error);
+}
+
 function hydrateQuestion(row: {
   question_id: string;
   question_snapshot: unknown;
@@ -61,6 +202,7 @@ function hydrateQuestion(row: {
 export async function loadCloudState(userId: string): Promise<{
   userState: UserState;
   hasSolvedAny: boolean;
+  sessionResume: SessionResume | null;
 }> {
   const [profileRes, historyRes, wordsRes, questionsRes] = await Promise.all([
     supabase.from('user_learning_profile').select('*').eq('user_id', userId).maybeSingle(),
@@ -129,9 +271,14 @@ export async function loadCloudState(userId: string): Promise<{
   }
 
   const solvedSum = Object.values(userState.progress).reduce((a, b) => a + b, 0);
+  const profileRow = profile as { session_resume?: unknown } | null;
+  const fromServer = parseSessionResume(profileRow?.session_resume ?? null);
+  const fromStorage = readSessionResumeFromStorage(userId);
+  const sessionResume = pickNewerSessionResume(fromServer, fromStorage);
   return {
     userState,
     hasSolvedAny: historyRows.length > 0 || solvedSum > 0,
+    sessionResume,
   };
 }
 
@@ -218,6 +365,7 @@ export async function resetCloudLearning(userId: string) {
       streak: 0,
       progress: { ...EMPTY_PROGRESS },
       mistake_weights: { ...EMPTY_PROGRESS },
+      session_resume: null,
     },
     { onConflict: 'user_id' },
   );

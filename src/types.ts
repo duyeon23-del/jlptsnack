@@ -40,3 +40,12 @@ export interface UserState {
     timestamp: number;
   }[];
 }
+
+/** 이어서 하기 — 이탈·로그아웃 직전 화면 복원용 */
+export interface SessionResume {
+  questionBuffer: Question[];
+  currentIdx: number;
+  selectedOption: number | null;
+  isLocked: boolean;
+  updatedAt: number;
+}

@@ -6,19 +6,26 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type FC } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Loader2, Bookmark as BookmarkIcon, X } from 'lucide-react';
-import { Question, UserState, QuestionType, Bookmark } from './types';
+import { Question, UserState, QuestionType, Bookmark, SessionResume } from './types';
 import { AuthHeaderButton } from './components/AuthHeaderButton';
 import { QuestionCard, Feedback } from './components/TutorComponents';
 import { useSupabaseAuth } from './hooks/useSupabaseAuth';
+import { supabase } from './lib/supabase';
 import { generateN5Questions } from './services/geminiService';
 import {
+  clearSessionResumeRemote,
+  clearSessionResumeStorage,
   emptyUserState,
   insertAnswerHistory,
   loadCloudState,
+  pickNewerSessionResume,
+  readSessionResumeFromStorage,
   resetCloudLearning,
+  saveSessionResumeRemote,
   syncQuestionBookmark,
   syncWordBookmark,
   upsertLearningProfile,
+  writeSessionResumeToStorage,
 } from './services/learningCloud';
 import { QUESTIONS } from './data/questions';
 
@@ -105,8 +112,16 @@ export default function App() {
   const generatingPromiseRef = useRef<Promise<Question[]> | null>(null);
   const [cloudSynced, setCloudSynced] = useState(true);
   const [serverHasProgress, setServerHasProgress] = useState(false);
+  const [restorableSession, setRestorableSession] = useState<SessionResume | null>(null);
 
   const [userState, setUserState] = useState<UserState>(emptyUserState());
+  const sessionRemoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionMirrorRef = useRef({
+    questionBuffer: [] as Question[],
+    currentIdx: 0,
+    selectedOption: null as number | null,
+    isLocked: false,
+  });
 
   useEffect(() => {
     if (!user) {
@@ -116,6 +131,7 @@ export default function App() {
       setSelectedOption(null);
       setIsLocked(false);
       setServerHasProgress(false);
+      setRestorableSession(null);
       setCloudSynced(true);
       setGameState('welcome');
       return;
@@ -123,15 +139,18 @@ export default function App() {
 
     let cancelled = false;
     setCloudSynced(false);
+    setRestorableSession(null);
     (async () => {
       try {
-        const { userState: loaded, hasSolvedAny } = await loadCloudState(user.id);
+        const { userState: loaded, hasSolvedAny, sessionResume } = await loadCloudState(user.id);
         if (cancelled) return;
         setUserState(loaded);
         setServerHasProgress(hasSolvedAny);
+        setRestorableSession(sessionResume);
       } catch (e) {
         console.error('loadCloudState', e);
         if (!cancelled) setUserState(emptyUserState());
+        if (!cancelled) setRestorableSession(null);
       } finally {
         if (!cancelled) setCloudSynced(true);
       }
@@ -141,6 +160,50 @@ export default function App() {
       cancelled = true;
     };
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || gameState !== 'playing') return;
+    sessionMirrorRef.current = { questionBuffer, currentIdx, selectedOption, isLocked };
+    const payload: SessionResume = {
+      questionBuffer,
+      currentIdx,
+      selectedOption,
+      isLocked,
+      updatedAt: Date.now(),
+    };
+    writeSessionResumeToStorage(user.id, payload);
+    if (sessionRemoteTimerRef.current) clearTimeout(sessionRemoteTimerRef.current);
+    sessionRemoteTimerRef.current = setTimeout(() => {
+      sessionRemoteTimerRef.current = null;
+      const m = sessionMirrorRef.current;
+      void saveSessionResumeRemote(user.id, {
+        questionBuffer: m.questionBuffer,
+        currentIdx: m.currentIdx,
+        selectedOption: m.selectedOption,
+        isLocked: m.isLocked,
+        updatedAt: Date.now(),
+      });
+    }, 900);
+    return () => {
+      if (sessionRemoteTimerRef.current) clearTimeout(sessionRemoteTimerRef.current);
+    };
+  }, [user?.id, gameState, questionBuffer, currentIdx, selectedOption, isLocked]);
+
+  useEffect(() => {
+    if (!user?.id || gameState !== 'playing') return;
+    const flush = () => {
+      const m = sessionMirrorRef.current;
+      void saveSessionResumeRemote(user.id, {
+        questionBuffer: m.questionBuffer,
+        currentIdx: m.currentIdx,
+        selectedOption: m.selectedOption,
+        isLocked: m.isLocked,
+        updatedAt: Date.now(),
+      });
+    };
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, [user?.id, gameState]);
 
   const getNextCategory = useCallback(() => {
     // 1. Check baseline coverage (5 questions per category)
@@ -377,6 +440,14 @@ export default function App() {
 
   const startLearning = async () => {
     if (!(await ensureLoggedIn())) return;
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const uid = session?.user?.id;
+    if (uid) {
+      clearSessionResumeStorage(uid);
+      void clearSessionResumeRemote(uid);
+    }
     setGameState('loading');
     setLoadingProgress(0);
     
@@ -393,10 +464,11 @@ export default function App() {
     }, 100);
 
     setTimeout(() => {
-      // Pick 1 random category and 1 random question from that category
+      // 몸풀기 시작: 첫 칸만 카탈로그(QUESTIONS)에서 랜덤 — 이후 문항은 전부 fetchBatch → generateN5Questions
       const randomCategory = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
-      const categoryQuestions = QUESTIONS.filter(q => q.type === randomCategory);
-      const initialQuestion = categoryQuestions[Math.floor(Math.random() * categoryQuestions.length)];
+      const categoryQuestions = QUESTIONS.filter((q) => q.type === randomCategory);
+      const pool = categoryQuestions.length > 0 ? categoryQuestions : QUESTIONS;
+      const initialQuestion = pool[Math.floor(Math.random() * pool.length)];
       
       clearInterval(progressInterval);
       setLoadingProgress(100);
@@ -417,9 +489,25 @@ export default function App() {
     if (!(await ensureLoggedIn())) return;
     if (questionBuffer.length > 0 && currentIdx < questionBuffer.length) {
       setGameState('playing');
-    } else {
-      startLearning();
+      return;
     }
+    const uid = user?.id;
+    let snapshot: SessionResume | null = restorableSession;
+    if (uid) {
+      snapshot = pickNewerSessionResume(snapshot, readSessionResumeFromStorage(uid));
+    }
+    if (snapshot?.questionBuffer?.length) {
+      setQuestionBuffer(snapshot.questionBuffer);
+      setCurrentIdx(snapshot.currentIdx);
+      setSelectedOption(snapshot.selectedOption ?? null);
+      setIsLocked(snapshot.isLocked);
+      setGameState('playing');
+      if (snapshot.questionBuffer.length - snapshot.currentIdx <= 2 && !generatingPromiseRef.current) {
+        void fetchBatch(3);
+      }
+      return;
+    }
+    void startLearning();
   };
 
   const handleStartOver = async () => {
@@ -429,9 +517,11 @@ export default function App() {
       } catch (e) {
         console.error('resetCloudLearning', e);
       }
+      clearSessionResumeStorage(user.id);
     }
     setUserState(emptyUserState());
     setServerHasProgress(false);
+    setRestorableSession(null);
     setQuestionBuffer([]);
     setCurrentIdx(0);
     setShowResetConfirm(false);
@@ -440,7 +530,8 @@ export default function App() {
   const showWelcomeResume =
     cloudSynced &&
     ((!user && userState.history.length > 0) ||
-      (user && (serverHasProgress || userState.history.length > 0)));
+      (user &&
+        (serverHasProgress || userState.history.length > 0 || !!restorableSession)));
 
   return (
     <div className="min-h-screen bg-[var(--color-brand-bg)] font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden flex">
