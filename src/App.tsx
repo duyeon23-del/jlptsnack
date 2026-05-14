@@ -596,53 +596,25 @@ export default function App() {
                   exit={{ opacity: 0, y: -20 }}
                   className="lg:col-span-12 flex flex-col items-center justify-center py-20 text-center"
                 >
-                  <div className="relative w-40 h-40 mb-12">
-                    <div className="absolute inset-0 bg-indigo-50 rounded-full animate-pulse opacity-50" />
-                    <div className="absolute inset-4 bg-white rounded-3xl shadow-xl flex items-center justify-center border border-indigo-100 overflow-hidden">
-                      <motion.svg width="90" height="90" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute">
-                        <motion.g
-                          animate={{ y: [0, -4, 0] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                        >
-                          {/* Sumo Body */}
-                          <path d="M 25 70 C 20 40, 35 25, 50 25 C 65 25, 80 40, 75 70 C 80 90, 70 95, 50 95 C 30 95, 20 90, 25 70 Z" fill="#FFE4C4" stroke="#334155" strokeWidth="4" strokeLinejoin="round"/>
-                          {/* Sumo Mawashi (Belt) */}
-                          <path d="M 23 75 Q 50 85 77 75 L 75 90 Q 50 95 25 90 Z" fill="#3B82F6" stroke="#334155" strokeWidth="3" strokeLinejoin="round"/>
-                          <path d="M 45 75 L 45 92 M 55 75 L 55 92" stroke="#334155" strokeWidth="3" strokeLinecap="round"/>
-                          {/* Sumo Hair (Chonmage) */}
-                          <path d="M 40 25 C 40 15, 60 15, 60 25" fill="#334155" />
-                          <rect x="47" y="10" width="6" height="15" fill="#334155" rx="3" />
-                          {/* Face */}
-                          <path d="M 35 45 Q 40 40 45 45" stroke="#334155" strokeWidth="3" strokeLinecap="round" fill="none" />
-                          <path d="M 55 45 Q 60 40 65 45" stroke="#334155" strokeWidth="3" strokeLinecap="round" fill="none" />
-                          {/* Mouth */}
-                          <motion.path 
-                            d="M 45 55 Q 50 65 55 55 Z" 
-                            fill="#FDA4AF" stroke="#334155" strokeWidth="2" strokeLinejoin="round" 
-                            animate={{ scaleY: [1, 1.2, 1] }}
-                            transition={{ duration: 0.5, repeat: Infinity, repeatType: "mirror" }}
-                            style={{ transformOrigin: "50px 55px" }}
-                          />
-                          {/* Blush */}
-                          <circle cx="30" cy="52" r="5" fill="#FECDD3" />
-                          <circle cx="70" cy="52" r="5" fill="#FECDD3" />
-                        </motion.g>
-                        
-                        {/* Dango (Snack) */}
-                        <motion.g
-                          animate={{ rotate: [0, -10, 0], x: [0, -2, 0] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                          style={{ transformOrigin: "85px 50px" }}
-                        >
-                          {/* Hand holding dango */}
-                          <circle cx="72" cy="70" r="8" fill="#FFE4C4" stroke="#334155" strokeWidth="3" />
-                          <line x1="85" y1="30" x2="70" y2="70" stroke="#CD853F" strokeWidth="3" strokeLinecap="round" />
-                          <circle cx="81" cy="40" r="8" fill="#F472B6" stroke="#334155" strokeWidth="2" />
-                          <circle cx="77" cy="52" r="8" fill="#FDE047" stroke="#334155" strokeWidth="2" />
-                          <circle cx="73" cy="64" r="8" fill="#86EFAC" stroke="#334155" strokeWidth="2" />
-                        </motion.g>
-                      </motion.svg>
-                    </div>
+                  <div className="relative mb-12 flex h-40 w-40 items-center justify-center">
+                    <div className="absolute inset-0 rounded-full bg-indigo-50 opacity-50 animate-pulse" />
+                    <motion.div
+                      className="relative z-10 flex h-full w-full items-center justify-center"
+                      animate={{ y: [0, -4, 0] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                    >
+                      <picture>
+                        <source srcSet="/yuki_coach.webp" type="image/webp" />
+                        <img
+                          src="/yuki_coach.png"
+                          alt="JLPT 코치 유키"
+                          className="h-full w-full object-contain"
+                          decoding="async"
+                          width={160}
+                          height={160}
+                        />
+                      </picture>
+                    </motion.div>
                   </div>
                   <h2 className="text-4xl md:text-5xl font-black text-slate-900 mb-6 tracking-tight">JLPT N5 스낵 학습</h2>
                   <p className="text-lg text-slate-500 mb-10 max-w-md mx-auto leading-relaxed">

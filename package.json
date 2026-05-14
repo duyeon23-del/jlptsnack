@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "icons": "node scripts/generate-pwa-icons.mjs"
+    "icons": "node scripts/generate-pwa-icons.mjs",
+    "optimize:yuki": "node scripts/optimize-yuki-coach.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
