@@ -333,7 +333,10 @@ export async function generateN5Questions(category: QuestionType, count: number 
       throw new Error('생성된 문항이 모두 정답 누설 검사에 걸렸습니다. 다시 시도해 주세요.');
     }
 
-    return cleaned;
+    return cleaned.map((q) => ({
+      ...q,
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `gen-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+    }));
   } catch (error) {
     console.error("Error generating questions:", error);
     throw error;

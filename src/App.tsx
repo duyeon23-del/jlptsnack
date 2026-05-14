@@ -233,9 +233,15 @@ export default function App() {
       try {
         const category = getNextCategory();
         const newQuestions = await generateN5Questions(category, count);
-        setQuestionBuffer(prev => {
-          const newIds = new Set(newQuestions.map(q => q.id));
-          return [...prev.filter(q => !newIds.has(q.id)), ...newQuestions];
+        setQuestionBuffer((prev) => {
+          const seen = new Set(prev.map((q) => q.id));
+          const appended: Question[] = [];
+          for (const q of newQuestions) {
+            if (seen.has(q.id)) continue;
+            seen.add(q.id);
+            appended.push(q);
+          }
+          return [...prev, ...appended];
         });
         return newQuestions;
       } catch (error) {
