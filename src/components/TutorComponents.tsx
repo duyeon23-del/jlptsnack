@@ -79,7 +79,6 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
         const float32Data = await getOrFetchTtsFloat32(listeningTtsSource);
         if (cancelled) return;
         setCachedAudio(float32Data);
-        setHasListened(true);
       } catch (e) {
         if (!cancelled) console.error('청해 TTS 프리페치 실패:', e);
       }
