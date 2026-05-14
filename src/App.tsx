@@ -12,6 +12,7 @@ import { QuestionCard, Feedback } from './components/TutorComponents';
 import { useSupabaseAuth } from './hooks/useSupabaseAuth';
 import { supabase } from './lib/supabase';
 import { generateN5Questions } from './services/geminiService';
+import { getOrFetchListeningTtsFloat32, listeningTtsTextFromQuestion } from './services/listeningTtsCache';
 import {
   clearSessionResumeRemote,
   clearSessionResumeStorage,
@@ -204,6 +205,15 @@ export default function App() {
     window.addEventListener('pagehide', flush);
     return () => window.removeEventListener('pagehide', flush);
   }, [user?.id, gameState]);
+
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+    const upcoming = questionBuffer.slice(currentIdx + 1).find((q) => q.type === 'N5L');
+    if (!upcoming) return;
+    const text = listeningTtsTextFromQuestion(upcoming);
+    if (!text) return;
+    void getOrFetchListeningTtsFloat32(upcoming.id, text).catch(() => {});
+  }, [gameState, questionBuffer, currentIdx]);
 
   const getNextCategory = useCallback(() => {
     // 1. Check baseline coverage (5 questions per category)

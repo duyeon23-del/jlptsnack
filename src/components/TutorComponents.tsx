@@ -2,22 +2,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, XCircle, Lightbulb, ArrowRight, RefreshCcw, Volume2, Eye, EyeOff, Loader2, Bookmark as BookmarkIcon } from 'lucide-react';
 import { Question } from '../types';
-import { getTextToSpeech, scrubJapaneseQuestionSurfaces } from '../services/geminiService';
-
-function decodeGeminiTtsPcmBase64ToFloat32(base64: string): Float32Array {
-  const binaryString = window.atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  const arrayBuffer = bytes.buffer;
-  const pcmData = new Int16Array(arrayBuffer);
-  const float32Data = new Float32Array(pcmData.length);
-  for (let i = 0; i < pcmData.length; i++) {
-    float32Data[i] = pcmData[i] / 32768.0;
-  }
-  return float32Data;
-}
+import { scrubJapaneseQuestionSurfaces } from '../services/geminiService';
+import { getOrFetchListeningTtsFloat32 } from '../services/listeningTtsCache';
 
 interface QuestionCardProps {
   question: Question;
@@ -38,7 +24,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
   const [cachedAudio, setCachedAudio] = useState<Float32Array | null>(null);
   const [hasListened, setHasListened] = useState(false);
   const animationRef = useRef<number>();
-  const ttsInflightRef = useRef<Map<string, Promise<Float32Array>>>(new Map());
+  const playbackRef = useRef<{ audioContext: AudioContext; source: AudioBufferSourceNode } | null>(null);
 
   const isListeningMode = displayQuestion.type === 'N5L';
 
@@ -48,19 +34,34 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
   }, [displayQuestion.context, displayQuestion.question]);
 
   const getOrFetchTtsFloat32 = useCallback(
-    (text: string) => {
-      const key = `${question.id}\0${text}`;
-      const hit = ttsInflightRef.current.get(key);
-      if (hit) return hit;
-      const p = getTextToSpeech(text).then((base64) => decodeGeminiTtsPcmBase64ToFloat32(base64));
-      ttsInflightRef.current.set(key, p);
-      p.finally(() => {
-        if (ttsInflightRef.current.get(key) === p) ttsInflightRef.current.delete(key);
-      });
-      return p;
-    },
+    (text: string) => getOrFetchListeningTtsFloat32(question.id, text),
     [question.id],
   );
+
+  const endPlayback = useCallback((markListened: boolean) => {
+    if (animationRef.current != null) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = undefined;
+    }
+    const p = playbackRef.current;
+    if (p) {
+      try {
+        p.source.onended = null;
+        p.source.stop(0);
+      } catch {
+        /* already stopped */
+      }
+      try {
+        if (p.audioContext.state !== 'closed') void p.audioContext.close();
+      } catch {
+        /* */
+      }
+      playbackRef.current = null;
+    }
+    setAudioState('idle');
+    setPlaybackProgress(0);
+    if (markListened) setHasListened(true);
+  }, []);
 
   useEffect(() => {
     setShowScript(false);
@@ -68,8 +69,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
     setAudioState('idle');
     setPlaybackProgress(0);
     setHasListened(false);
-    ttsInflightRef.current.clear();
-    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    endPlayback(false);
 
     if (!isListeningMode || !listeningTtsSource) return;
 
@@ -87,8 +87,15 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
 
     return () => {
       cancelled = true;
+      endPlayback(false);
     };
-  }, [question.id, isListeningMode, listeningTtsSource, getOrFetchTtsFloat32]);
+  }, [question.id, isListeningMode, listeningTtsSource, getOrFetchTtsFloat32, endPlayback]);
+
+  useEffect(() => {
+    if (!isListeningMode || !isLocked || selectedOption === null) return;
+    if (selectedOption !== question.answerIndex) return;
+    endPlayback(false);
+  }, [isListeningMode, isLocked, selectedOption, question.answerIndex, endPlayback]);
 
   const handlePlayAudio = async () => {
     if (audioState !== 'idle') return;
@@ -111,6 +118,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
       source.buffer = audioBuffer;
       source.connect(audioContext.destination);
 
+      playbackRef.current = { audioContext, source };
       setAudioState('playing');
 
       const startTime = audioContext.currentTime;
@@ -128,19 +136,14 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedOp
       };
 
       source.onended = () => {
-        setAudioState('idle');
-        setHasListened(true);
-        setPlaybackProgress(0);
-        if (animationRef.current) cancelAnimationFrame(animationRef.current);
-        audioContext.close();
+        endPlayback(true);
       };
 
       source.start();
       animationRef.current = requestAnimationFrame(updateProgress);
     } catch (error) {
       console.error('Playback failed:', error);
-      setAudioState('idle');
-      setPlaybackProgress(0);
+      endPlayback(false);
     }
   };
 
