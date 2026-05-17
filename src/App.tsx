@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef, type FC } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Loader2, Bookmark as BookmarkIcon, X } from 'lucide-react';
+import { Loader2, Bookmark as BookmarkIcon, X, ArrowLeft } from 'lucide-react';
 import { Question, UserState, QuestionType, Bookmark, SessionResume } from './types';
 import { AuthHeaderButton } from './components/AuthHeaderButton';
 import { QuestionCard, Feedback } from './components/TutorComponents';
@@ -31,6 +31,16 @@ import {
 import { QUESTIONS } from './data/questions';
 
 const CATEGORIES: QuestionType[] = ['N5V', 'N5G', 'N5R', 'N5L'];
+
+type FocusAreaChoice = QuestionType | 'none';
+
+const FOCUS_AREA_OPTIONS: { label: string; value: FocusAreaChoice }[] = [
+  { label: '어휘', value: 'N5V' },
+  { label: '문법', value: 'N5G' },
+  { label: '독해', value: 'N5R' },
+  { label: '청해', value: 'N5L' },
+  { label: '없음', value: 'none' },
+];
 
 const N5_KANJI_LIST = [
   { kanji: '一', furigana: 'いち', meaning: '하나' }, { kanji: '二', furigana: 'に', meaning: '둘' }, { kanji: '三', furigana: 'さん', meaning: '셋' },
@@ -114,6 +124,9 @@ export default function App() {
   const [cloudSynced, setCloudSynced] = useState(true);
   const [serverHasProgress, setServerHasProgress] = useState(false);
   const [restorableSession, setRestorableSession] = useState<SessionResume | null>(null);
+  const [welcomeStep, setWelcomeStep] = useState<'main' | 'focus-select'>('main');
+  const [selectedFocus, setSelectedFocus] = useState<FocusAreaChoice | null>(null);
+  const sessionFocusAreaRef = useRef<QuestionType | null>(null);
 
   const [userState, setUserState] = useState<UserState>(emptyUserState());
   const sessionRemoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -215,16 +228,14 @@ export default function App() {
     void getOrFetchListeningTtsFloat32(upcoming.id, text).catch(() => {});
   }, [gameState, questionBuffer, currentIdx]);
 
-  const getNextCategory = useCallback(() => {
-    // 1. Check baseline coverage (5 questions per category)
+  const getBaselineOrAdaptiveCategory = useCallback((): QuestionType => {
     for (const cat of CATEGORIES) {
       if ((userState.progress[cat] || 0) < 5) return cat;
     }
 
-    // 2. Adaptive: Pick the one with highest mistake weight
     let maxWeight = -1;
     let targetCat: QuestionType = 'N5V';
-    
+
     for (const cat of CATEGORIES) {
       const weight = userState.mistakeWeights[cat] || 0;
       if (weight > maxWeight) {
@@ -234,6 +245,14 @@ export default function App() {
     }
     return targetCat;
   }, [userState.progress, userState.mistakeWeights]);
+
+  const getNextCategory = useCallback(() => {
+    const focus = sessionFocusAreaRef.current;
+    if (focus && Math.random() < 0.7) {
+      return focus;
+    }
+    return getBaselineOrAdaptiveCategory();
+  }, [getBaselineOrAdaptiveCategory]);
 
   const fetchBatch = useCallback(async (count: number = 3) => {
     if (generatingPromiseRef.current) return generatingPromiseRef.current;
@@ -454,8 +473,11 @@ export default function App() {
     if (uid) void syncQuestionBookmark(uid, question, adding);
   };
 
-  const startLearning = async () => {
+  const startLearning = async (options?: { clearFocus?: boolean }) => {
     if (!(await ensureLoggedIn())) return;
+    if (options?.clearFocus !== false) {
+      sessionFocusAreaRef.current = null;
+    }
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -501,6 +523,13 @@ export default function App() {
     }, 600);
   };
 
+  const confirmResumeWithFocus = () => {
+    if (!selectedFocus) return;
+    const focus = selectedFocus === 'none' ? null : selectedFocus;
+    sessionFocusAreaRef.current = focus;
+    void resumeLearning();
+  };
+
   const resumeLearning = async () => {
     if (!(await ensureLoggedIn())) return;
     if (questionBuffer.length > 0 && currentIdx < questionBuffer.length) {
@@ -523,7 +552,7 @@ export default function App() {
       }
       return;
     }
-    void startLearning();
+    void startLearning({ clearFocus: false });
   };
 
   const handleStartOver = async () => {
@@ -540,8 +569,18 @@ export default function App() {
     setRestorableSession(null);
     setQuestionBuffer([]);
     setCurrentIdx(0);
+    sessionFocusAreaRef.current = null;
+    setWelcomeStep('main');
+    setSelectedFocus(null);
     setShowResetConfirm(false);
   };
+
+  useEffect(() => {
+    if (gameState !== 'welcome') {
+      setWelcomeStep('main');
+      setSelectedFocus(null);
+    }
+  }, [gameState]);
 
   const showWelcomeResume =
     cloudSynced &&
@@ -549,14 +588,29 @@ export default function App() {
       (user &&
         (serverHasProgress || userState.history.length > 0 || !!restorableSession)));
 
+  const goToWelcomeMain = () => {
+    setWelcomeStep('main');
+    setSelectedFocus(null);
+    setGameState('welcome');
+  };
+
   return (
     <div className="min-h-screen bg-[var(--color-brand-bg)] font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden flex">
       {/* Main Content Area */}
       <main className="relative isolate flex flex-1 flex-col h-screen overflow-hidden">
         <header className="relative z-50 flex h-16 shrink-0 items-center justify-between border-b border-slate-100 bg-white/50 px-8 backdrop-blur-sm">
-          <div className="flex items-center gap-4 cursor-pointer" onClick={() => setGameState('welcome')}>
-            <h1 className="text-lg font-bold text-slate-700 hover:text-indigo-600 transition-colors">오늘의 N5 스낵 학습 ⚡</h1>
-          </div>
+          {gameState === 'playing' || gameState === 'loading' ? (
+            <button
+              type="button"
+              onClick={goToWelcomeMain}
+              className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100 hover:text-indigo-600"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              메인으로 돌아가기
+            </button>
+          ) : (
+            <h1 className="text-lg font-bold text-slate-700">오늘의 N5 스낵 학습 ⚡</h1>
+          )}
           <div className="flex items-center gap-3 sm:gap-4">
             <button
               type="button"
@@ -629,25 +683,81 @@ export default function App() {
                       </p>
                     </div>
                   ) : showWelcomeResume ? (
-                    <div className="flex flex-col sm:flex-row gap-4 items-center mt-6">
-                      <button
-                        onClick={() => void resumeLearning()}
-                        className="bg-indigo-600 text-white px-8 py-4 rounded-2xl text-lg font-bold shadow-xl shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-1 transition-all active:translate-y-0 disabled:opacity-50"
-                        disabled={gameState === 'loading'}
+                    welcomeStep === 'focus-select' ? (
+                      <motion.div
+                        key="focus-select"
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-6 w-full max-w-md mx-auto"
                       >
-                        이어서 하기 →
-                      </button>
-                      <button
-                        onClick={() => setShowResetConfirm(true)}
-                        className="bg-white text-slate-600 border border-slate-200 px-8 py-4 rounded-2xl text-lg font-bold shadow-sm hover:bg-slate-50 hover:-translate-y-1 transition-all active:translate-y-0 disabled:opacity-50"
-                        disabled={gameState === 'loading'}
-                      >
-                        처음부터 하기
-                      </button>
-                    </div>
+                        <p className="text-lg font-bold text-slate-800 mb-6">
+                          오늘 특별히 집중하고 싶은 영역이 있나요?
+                        </p>
+                        <div
+                          className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8"
+                          role="group"
+                          aria-label="집중 영역 선택"
+                        >
+                          {FOCUS_AREA_OPTIONS.map((opt) => {
+                            const isSelected = selectedFocus === opt.value;
+                            return (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() => setSelectedFocus(opt.value)}
+                                className={`px-4 py-3 rounded-2xl text-base font-bold border-2 transition-all ${
+                                  isSelected
+                                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-md'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:bg-indigo-50/50'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <motion.div className="flex flex-col sm:flex-row gap-3 justify-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWelcomeStep('main');
+                              setSelectedFocus(null);
+                            }}
+                            className="bg-white text-slate-600 border border-slate-200 px-8 py-3 rounded-2xl text-base font-bold hover:bg-slate-50 transition-all"
+                          >
+                            뒤로
+                          </button>
+                          <button
+                            type="button"
+                            onClick={confirmResumeWithFocus}
+                            disabled={!selectedFocus || gameState === 'loading'}
+                            className="bg-indigo-600 text-white px-8 py-3 rounded-2xl text-base font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
+                          >
+                            시작
+                          </button>
+                        </motion.div>
+                      </motion.div>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row gap-4 items-center mt-6">
+                        <button
+                          onClick={() => setWelcomeStep('focus-select')}
+                          className="bg-indigo-600 text-white px-8 py-4 rounded-2xl text-lg font-bold shadow-xl shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-1 transition-all active:translate-y-0 disabled:opacity-50"
+                          disabled={gameState === 'loading'}
+                        >
+                          이어서 하기 →
+                        </button>
+                        <button
+                          onClick={() => setShowResetConfirm(true)}
+                          className="bg-white text-slate-600 border border-slate-200 px-8 py-4 rounded-2xl text-lg font-bold shadow-sm hover:bg-slate-50 hover:-translate-y-1 transition-all active:translate-y-0 disabled:opacity-50"
+                          disabled={gameState === 'loading'}
+                        >
+                          처음부터 하기
+                        </button>
+                      </div>
+                    )
                   ) : (
                     <button
-                      onClick={() => void startLearning()}
+                      onClick={() => void startLearning({ clearFocus: true })}
                       className="bg-indigo-600 text-white px-10 py-5 rounded-2xl text-xl font-bold shadow-xl shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-1 transition-all active:translate-y-0 disabled:opacity-50"
                       disabled={gameState === 'loading'}
                     >
