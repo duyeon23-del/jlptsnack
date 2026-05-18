@@ -648,15 +648,9 @@ export default function App() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className={`lg:col-span-12 flex flex-col items-center justify-center text-center ${
-                    welcomeStep === 'focus-select' ? 'py-4 md:py-6' : 'py-20'
-                  }`}
+                  className="lg:col-span-12 flex flex-col items-center justify-center py-20 text-center"
                 >
-                  <motion.div
-                    className={`relative flex items-center justify-center ${
-                      welcomeStep === 'focus-select' ? 'mb-3 h-20 w-20' : 'mb-12 h-40 w-40'
-                    }`}
-                  >
+                  <div className="relative mb-12 flex h-40 w-40 items-center justify-center">
                     <div className="absolute inset-0 rounded-full bg-indigo-50 opacity-50 animate-pulse" />
                     <motion.div
                       className="relative z-10 flex h-full w-full items-center justify-center"
@@ -675,26 +669,10 @@ export default function App() {
                         />
                       </picture>
                     </motion.div>
-                  </motion.div>
-                  <h2
-                    className={`font-black text-slate-900 tracking-tight ${
-                      welcomeStep === 'focus-select'
-                        ? 'mb-1 text-2xl md:text-3xl'
-                        : 'mb-6 text-4xl md:text-5xl'
-                    }`}
-                  >
-                    JLPT N5 스낵 학습
-                  </h2>
-                  <p
-                    className={`max-w-md mx-auto leading-snug text-slate-500 ${
-                      welcomeStep === 'focus-select'
-                        ? 'mb-2 text-sm'
-                        : 'mb-10 text-lg leading-relaxed'
-                    }`}
-                  >
-                    당신의 JLPT 코치가 합격의 길로 안내합니다.
-                    <br />
-                    매일 조금씩 실력을 쌓아보세요.
+                  </div>
+                  <h2 className="text-4xl md:text-5xl font-black text-slate-900 mb-6 tracking-tight">JLPT N5 스낵 학습</h2>
+                  <p className="text-lg text-slate-500 mb-10 max-w-md mx-auto leading-relaxed">
+                    당신의 JLPT 코치가 합격의 길로 안내합니다.<br />매일 조금씩 실력을 쌓아보세요.
                   </p>
                   
                   {user && !cloudSynced ? (
@@ -708,15 +686,15 @@ export default function App() {
                     welcomeStep === 'focus-select' ? (
                       <motion.div
                         key="focus-select"
-                        initial={{ opacity: 0, y: 8 }}
+                        initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="w-full max-w-sm mx-auto"
+                        className="mt-6 w-full max-w-md mx-auto"
                       >
-                        <p className="mb-2 text-sm font-bold text-slate-800 md:text-base">
+                        <p className="text-lg font-bold text-slate-800 mb-6">
                           오늘 특별히 집중하고 싶은 영역이 있나요?
                         </p>
                         <div
-                          className="mb-3 grid grid-cols-3 gap-2"
+                          className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8"
                           role="group"
                           aria-label="집중 영역 선택"
                         >
@@ -727,11 +705,9 @@ export default function App() {
                                 key={opt.value}
                                 type="button"
                                 onClick={() => setSelectedFocus(opt.value)}
-                                className={`rounded-xl border-2 px-2 py-2 text-sm font-bold transition-all ${
-                                  opt.value === 'none' ? 'col-span-3' : ''
-                                } ${
+                                className={`px-4 py-3 rounded-2xl text-base font-bold border-2 transition-all ${
                                   isSelected
-                                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm'
+                                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-md'
                                     : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:bg-indigo-50/50'
                                 }`}
                               >
@@ -740,14 +716,14 @@ export default function App() {
                             );
                           })}
                         </div>
-                        <div className="flex justify-center gap-2">
+                        <motion.div className="flex flex-col sm:flex-row gap-3 justify-center">
                           <button
                             type="button"
                             onClick={() => {
                               setWelcomeStep('main');
                               setSelectedFocus(null);
                             }}
-                            className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-50"
+                            className="bg-white text-slate-600 border border-slate-200 px-8 py-3 rounded-2xl text-base font-bold hover:bg-slate-50 transition-all"
                           >
                             뒤로
                           </button>
@@ -755,11 +731,11 @@ export default function App() {
                             type="button"
                             onClick={confirmResumeWithFocus}
                             disabled={!selectedFocus || gameState === 'loading'}
-                            className="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-bold text-white shadow-md shadow-indigo-200 transition-all hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-indigo-600"
+                            className="bg-indigo-600 text-white px-8 py-3 rounded-2xl text-base font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
                           >
                             시작
                           </button>
-                        </div>
+                        </motion.div>
                       </motion.div>
                     ) : (
                       <div className="flex flex-col sm:flex-row gap-4 items-center mt-6">
