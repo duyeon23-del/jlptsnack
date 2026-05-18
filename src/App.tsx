@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef, type FC } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Loader2, Bookmark as BookmarkIcon, X, ArrowLeft } from 'lucide-react';
+import { Loader2, Bookmark as BookmarkIcon, X, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Question, UserState, QuestionType, Bookmark, SessionResume } from './types';
 import { AuthHeaderButton } from './components/AuthHeaderButton';
 import { QuestionCard, Feedback } from './components/TutorComponents';
@@ -671,7 +671,11 @@ export default function App() {
                     </motion.div>
                   </div>
                   <h2 className="text-4xl md:text-5xl font-black text-slate-900 mb-6 tracking-tight">JLPT N5 스낵 학습</h2>
-                  <p className="text-lg text-slate-500 mb-10 max-w-md mx-auto leading-relaxed">
+                  <p
+                    className={`max-w-md mx-auto text-lg leading-relaxed text-slate-500 ${
+                      welcomeStep === 'focus-select' ? 'mb-5' : 'mb-10'
+                    }`}
+                  >
                     당신의 JLPT 코치가 합격의 길로 안내합니다.<br />매일 조금씩 실력을 쌓아보세요.
                   </p>
                   
@@ -688,9 +692,9 @@ export default function App() {
                         key="focus-select"
                         initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="mt-6 w-full max-w-md mx-auto"
+                        className="mt-3 w-full max-w-md mx-auto"
                       >
-                        <p className="text-lg font-bold text-slate-800 mb-6">
+                        <p className="mb-6 text-lg font-bold text-slate-800">
                           오늘 특별히 집중하고 싶은 영역이 있나요?
                         </p>
                         <div
@@ -716,24 +720,26 @@ export default function App() {
                             );
                           })}
                         </div>
-                        <motion.div className="flex flex-col sm:flex-row gap-3 justify-center">
+                        <motion.div className="flex w-full items-center justify-between gap-4">
                           <button
                             type="button"
                             onClick={() => {
                               setWelcomeStep('main');
                               setSelectedFocus(null);
                             }}
-                            className="bg-white text-slate-600 border border-slate-200 px-8 py-3 rounded-2xl text-base font-bold hover:bg-slate-50 transition-all"
+                            className="flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-base font-bold text-slate-600 transition-all hover:bg-slate-50"
                           >
+                            <ArrowLeft className="h-4 w-4 shrink-0" aria-hidden />
                             뒤로
                           </button>
                           <button
                             type="button"
                             onClick={confirmResumeWithFocus}
                             disabled={!selectedFocus || gameState === 'loading'}
-                            className="bg-indigo-600 text-white px-8 py-3 rounded-2xl text-base font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
+                            className="flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-5 py-3 text-base font-bold text-white shadow-lg shadow-indigo-200 transition-all hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-indigo-600"
                           >
                             시작
+                            <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
                           </button>
                         </motion.div>
                       </motion.div>
